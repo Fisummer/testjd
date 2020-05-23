@@ -1,0 +1,183 @@
+package com.jd.alpha.music.migu.http;
+
+import android.content.Context;
+import android.os.Build;
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.util.Log;
+import com.jd.alpha.music.core.SkillInitiator;
+import com.jd.alpha.music.migu.MiguInitiator;
+import com.jd.alpha.music.migu.MiguMusicPlayerImpl;
+import com.jd.alpha.music.migu.util.DateUtils;
+import com.jd.alpha.music.migu.util.HMACSHA1;
+import com.jd.alpha.music.migu.util.Md5Util;
+import com.jd.alpha.music.migu.util.PackageUtils;
+import com.jd.alpha.music.migu.util.StatisticsReportUtil;
+import com.jd.alpha.music.migu.util.TelephoneUtils;
+import com.jd.push.common.constant.Constants;
+import com.zhy.http.okhttp.a.a;
+import com.zhy.http.okhttp.a.b;
+import java.net.URLEncoder;
+import java.util.Calendar;
+import java.util.Date;
+import okhttp3.MediaType;
+import org.apache.commons.io.IOUtils;
+
+public class WLHttpUtil {
+    private static final String TAG = "WLHttpUtil";
+    private static final char[] encodeTable = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', IOUtils.DIR_SEPARATOR_UNIX};
+    private static final char last2byte = ((char) Integer.parseInt("00000011", 2));
+    private static final char last4byte = ((char) Integer.parseInt("00001111", 2));
+    private static final char last6byte = ((char) Integer.parseInt("00111111", 2));
+    private static final char lead2byte = ((char) Integer.parseInt("11000000", 2));
+    private static final char lead4byte = ((char) Integer.parseInt("11110000", 2));
+    private static final char lead6byte = ((char) Integer.parseInt("11111100", 2));
+    public SkillInitiator.AppGatewayInfos mInfos;
+
+    public WLHttpUtil(SkillInitiator.AppGatewayInfos appGatewayInfos) {
+        this.mInfos = appGatewayInfos;
+    }
+
+    private void setCookie(a aVar) {
+        if (TextUtils.isEmpty(this.mInfos.appKey)) {
+            aVar.a("app_identity", "WL");
+        } else {
+            aVar.a("app_key", this.mInfos.appKey);
+        }
+        aVar.a("tgt", this.mInfos.tgt);
+        try {
+            aVar.a(Constants.JdPushMsg.JSON_KEY_CLIENTID, URLEncoder.encode(this.mInfos.pin, "UTF-8"));
+        } catch (Exception unused) {
+        }
+    }
+
+    public static String getAuthorization(Context context, String str, String str2, String str3, SkillInitiator.AppGatewayInfos appGatewayInfos) {
+        if (TextUtils.isEmpty(str)) {
+            return "";
+        }
+        try {
+            if (TextUtils.isEmpty(str3)) {
+                str3 = "";
+            }
+            String str4 = DateUtils.parseLongByFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", System.currentTimeMillis()) + "Z";
+            String md5 = Md5Util.md5("Android" + context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName + Build.MODEL + Build.VERSION.RELEASE + ":" + Calendar.getInstance().get(6));
+            String encode = encode(HMACSHA1.HmacSHA1Encrypt(md5 + str2.toLowerCase() + "json_body" + str3 + str4 + appGatewayInfos.accessKey + md5, appGatewayInfos.secretKey));
+            return "smart " + appGatewayInfos.accessKey + ":::" + encode.trim() + ":::" + str4;
+        } catch (Exception e) {
+            Log.e(TAG, "", e);
+            return "";
+        }
+    }
+
+    public static String encode(byte[] bArr) {
+        StringBuffer stringBuffer = new StringBuffer(((int) (((double) bArr.length) * 1.34d)) + 3);
+        int i = 0;
+        char c = 0;
+        for (int i2 = 0; i2 < bArr.length; i2++) {
+            i %= 8;
+            while (i < 8) {
+                if (i == 0) {
+                    c = (char) (((char) (bArr[i2] & lead6byte)) >>> 2);
+                } else if (i == 2) {
+                    c = (char) (bArr[i2] & last6byte);
+                } else if (i == 4) {
+                    c = (char) (((char) (bArr[i2] & last4byte)) << 2);
+                    int i3 = i2 + 1;
+                    if (i3 < bArr.length) {
+                        c = (char) (c | ((bArr[i3] & lead2byte) >>> 6));
+                    }
+                } else if (i == 6) {
+                    c = (char) (((char) (bArr[i2] & last2byte)) << 4);
+                    int i4 = i2 + 1;
+                    if (i4 < bArr.length) {
+                        c = (char) (c | ((bArr[i4] & lead4byte) >>> 4));
+                    }
+                }
+                stringBuffer.append(encodeTable[c]);
+                i += 6;
+            }
+        }
+        if (stringBuffer.length() % 4 != 0) {
+            for (int length = 4 - (stringBuffer.length() % 4); length > 0; length--) {
+                stringBuffer.append("=");
+            }
+        }
+        return stringBuffer.toString();
+    }
+
+    public Bundle request(Context context, String str, String str2, String str3, com.zhy.http.okhttp.b.a aVar) {
+        Bundle bundle = new Bundle();
+        String str4 = TAG;
+        Log.d(str4, "paramJson = " + str3);
+        StringBuilder sb = new StringBuilder(str);
+        sb.append("?");
+        sb.append("plat=Android");
+        sb.append("&");
+        sb.append("app_version");
+        sb.append("=");
+        sb.append(PackageUtils.getCurrentVersionName(context));
+        sb.append("&");
+        sb.append("hard_platform");
+        sb.append("=");
+        sb.append(Build.MODEL);
+        sb.append("&");
+        sb.append("plat_version");
+        sb.append("=");
+        sb.append(Build.VERSION.RELEASE);
+        sb.append("&");
+        sb.append("device_id");
+        sb.append("=");
+        sb.append(StatisticsReportUtil.getDeviceId(context));
+        if (!this.mInfos.isJD) {
+            sb.append("&");
+            sb.append("channel=dd");
+        }
+        String sb2 = sb.toString();
+        String str5 = TAG;
+        Log.d(str5, "url = " + sb2);
+        b a = com.zhy.http.okhttp.a.c().a(sb2).a(MediaType.parse("application/json; charset=utf-8"));
+        try {
+            a.a("Authorization", getAuthorization(context, sb2, "POST", str3, this.mInfos));
+            if (this.mInfos.isJD) {
+                setCookie(a);
+            } else {
+                a.a("appkey", this.mInfos.appKey);
+                a.a("accesskey", this.mInfos.accessKey);
+                a.a("userid", this.mInfos.userid);
+                a.a("mac", this.mInfos.mac);
+                a.a("sn", this.mInfos.sn);
+                a.a("vboxid", this.mInfos.vboxid);
+                a.a("vbox", this.mInfos.vbox);
+                a.a("versionno", this.mInfos.versionno);
+                a.a("protocolno", this.mInfos.protocolno);
+                a.a("clientip", this.mInfos.clientip);
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "request", e);
+        }
+        a.b(str3).a().b(aVar);
+        return bundle;
+    }
+
+    public static class BaseReqInfo {
+        String app_version;
+        public String command;
+        public String device_id;
+        public String mac_address;
+        String os_type = Build.VERSION.RELEASE;
+        public String sequence;
+        public String sessionId;
+        public String skill = MiguMusicPlayerImpl.APPLICATION_NAME;
+        public String sn = MiguInitiator.mSn;
+        String timestamp = (System.currentTimeMillis() + "");
+        public String version = Constants.BooleanKey.TRUE;
+
+        public BaseReqInfo(Context context) {
+            this.device_id = StatisticsReportUtil.getDeviceId(context);
+            this.app_version = PackageUtils.getCurrentVersionName(context);
+            this.mac_address = TelephoneUtils.getMacAddressStr(context);
+            this.sessionId = this.mac_address;
+            this.sequence = new Date().getTime() + "";
+        }
+    }
+}
